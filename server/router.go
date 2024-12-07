@@ -12,7 +12,6 @@ type Server struct {
 	// Handler should generally not be changed. It exposed to make testing easier.
 	Handler http.Handler
 	addr string
-	l logger.KayveeLogger
 	config serverConfig
 }
 
@@ -28,25 +27,10 @@ func CompressionLevel(level int) func(*serverConfig) {
 
 // Serve starts the server. It will return if an error occurs.
 func (s *Server) Serve() error {
-	isLocal := os.Getenv("_IS_LOCAL") == "true"
-	if !isLocal {
-		go startLoggingProcessMetrics()
-	}
-
 	go func() {
 		// This should never return. Listen on the pprof port
 		log.Printf("PProf server crashed: %%s", http.ListenAndServe("localhost:6060", nil))
 	}()
-
-	dir, err := osext.ExecutableFolder()
-	if err != nil {
-		log.Fatal(err)
-	}
-	if err := logger.SetGlobalRouting(path.Join(dir, "kvconfig.yml")); err != nil {
-		s.l.Info("please provide a kvconfig.yml file to enable app log routing")
-	}
-
-	s.l.Counter("server-started")
 
 	// Give the sever 30 seconds to shut down
 	server := &http.Server{
@@ -62,12 +46,12 @@ func (s *Server) Serve() error {
 		c := make(chan os.Signal, 1)
 		signal.Notify(c, os.Interrupt, os.Signal(syscall.SIGTERM))
 		sig := <-c
-		s.l.InfoD("shutdown-initiated", logger.M{"signal": sig.String()})
+		logrus.Info("shutdown-initiated", sig.String())
 		ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
 		defer cancel()
 		defer close(shutdown)
 		if err := server.Shutdown(ctx); err != nil {
-			s.l.CriticalD("error-during-shutdown", logger.M{"error": err.Error()})
+			logrus.WithContext(ctx).Error("error-during-shutdown", err)
 		}
 	}()
 
@@ -84,11 +68,7 @@ type handler struct {
 	Controller
 }
 
-func startLoggingProcessMetrics() {
-	metrics.Log("{{.Title}}", 1*time.Minute)
-}
-
-func withMiddleware(serviceName string, router http.Handler, m []func(http.Handler) http.Handler, config serverConfig) http.Handler {
+func withMiddleware(router http.Handler, m []func(http.Handler) http.Handler, config serverConfig) http.Handler {
 	handler := router
 
 	// compress everything
@@ -100,10 +80,7 @@ func withMiddleware(serviceName string, router http.Handler, m []func(http.Handl
 		handler = m[i](handler)
 	}
 	handler = PanicMiddleware(handler)
-	// Logging middleware comes last, i.e. will be run first.
-	// This makes it so that other middleware has access to the logger
-	// that kvMiddleware injects into the request context.
-	handler = kvMiddleware.New(handler, serviceName)
+
 	return handler
 }
 
@@ -121,12 +98,11 @@ func NewRouter(c Controller) *mux.Router {
 
 func newRouter(c Controller) *mux.Router {
 	router := mux.NewRouter()
-	router.Use(servertracing.MuxServerMiddleware("{{.Title}}"))
+
 	h := handler{Controller: c}
 
 	{{range $index, $val := .Functions}}
 	router.Methods("{{$val.Method}}").Path("{{$val.Path}}").HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		logger.FromContext(r.Context()).AddContext("op", "{{$val.OpID}}")
 		h.{{$val.HandlerName}}Handler(r.Context(), w, r)
 	})
 	{{end}}
@@ -158,8 +134,6 @@ func AttachMiddleware(router *mux.Router, addr string, m []func(http.Handler) ht
 	}
 
 
-	l := logger.New("{{.Title}}")
-
-	handler := withMiddleware("{{.Title}}", router, m, config)
-	return &Server{Handler: handler, addr: addr, l: l, config: config}
+	handler := withMiddleware(router, m, config)
+	return &Server{Handler: handler, addr: addr, config: config}
 }`

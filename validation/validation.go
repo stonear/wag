@@ -5,8 +5,8 @@ import (
 	"fmt"
 	"regexp"
 	"strings"
+	"wag/swagger"
 
-	"github.com/Clever/wag/v9/swagger"
 	swaggererrors "github.com/go-openapi/errors"
 	"github.com/go-openapi/loads"
 	"github.com/go-openapi/spec"
