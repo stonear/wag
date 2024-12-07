@@ -6,15 +6,13 @@ import (
 	"os"
 	"sort"
 	"strings"
+	goClient "wag/clients/go"
+	"wag/stringset"
+	"wag/swagger"
+	"wag/templates"
+	"wag/utils"
 
 	"github.com/go-openapi/spec"
-
-	"github.com/Clever/go-utils/stringset"
-	goClient "github.com/Clever/wag/v9/clients/go"
-	"github.com/Clever/wag/v9/swagger"
-	"github.com/Clever/wag/v9/templates"
-	"github.com/Clever/wag/v9/utils"
-
 	"github.com/go-swagger/go-swagger/generator"
 )
 
@@ -28,12 +26,14 @@ func Generate(packageName, basePath, outputPath string, s spec.Swagger) error {
 	defer os.Remove(tmpFile)
 
 	genopts := generator.GenOpts{
-		Spec:           tmpFile,
-		ModelPackage:   "models",
-		Target:         basePath,
-		IncludeModel:   true,
-		IncludeHandler: false,
-		IncludeSupport: false,
+		GenOptsCommon: generator.GenOptsCommon{
+			Spec:           tmpFile,
+			ModelPackage:   "models",
+			Target:         basePath,
+			IncludeModel:   true,
+			IncludeHandler: false,
+			IncludeSupport: false,
+		},
 	}
 
 	// The zero-values for many fields in GenOpts are not good defaults; this call

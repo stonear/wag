@@ -3,9 +3,9 @@ package swagger
 import (
 	"fmt"
 	"strings"
+	"wag/templates"
+	"wag/utils"
 
-	"github.com/Clever/wag/v9/templates"
-	"github.com/Clever/wag/v9/utils"
 	"github.com/go-openapi/spec"
 )
 

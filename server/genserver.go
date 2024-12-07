@@ -4,19 +4,18 @@ import (
 	"bytes"
 	"fmt"
 	"strings"
+	clients "wag/clients/go"
+	"wag/swagger"
+	"wag/templates"
+	"wag/utils"
 
 	"github.com/go-openapi/spec"
-
-	clients "github.com/Clever/wag/v9/clients/go"
-	"github.com/Clever/wag/v9/swagger"
-	"github.com/Clever/wag/v9/templates"
-	"github.com/Clever/wag/v9/utils"
 )
 
 // Generate server package for a swagger spec.
 func Generate(packageName, basePath, outputPath string, s spec.Swagger) error {
 
-	if err := generateRouter(packageName, basePath, outputPath, s, s.Paths); err != nil {
+	if err := generateRouter(basePath, s, s.Paths); err != nil {
 		return err
 	}
 	if err := generateInterface(packageName, basePath, outputPath, &s, s.Info.InfoProps.Title, s.Paths); err != nil {
@@ -41,7 +40,7 @@ type routerTemplate struct {
 	Functions        []routerFunction
 }
 
-func generateRouter(packageName, basePath, outputPath string, s spec.Swagger, paths *spec.Paths) error {
+func generateRouter(basePath string, s spec.Swagger, paths *spec.Paths) error {
 
 	var template routerTemplate
 	template.Title = s.Info.Title
@@ -67,16 +66,11 @@ func generateRouter(packageName, basePath, outputPath string, s spec.Swagger, pa
 		`_ "net/http/pprof"`,
 		"os",
 		"os/signal",
-		"path",
 		"syscall",
 		"time",
-		"github.com/Clever/go-process-metrics/metrics",
-		packageName + "/servertracing",
 		"github.com/gorilla/handlers",
 		"github.com/gorilla/mux",
-		"github.com/kardianos/osext",
-		"github.com/Clever/kayvee-go/v7/logger",
-		`kvMiddleware "github.com/Clever/kayvee-go/v7/middleware"`,
+		"github.com/sirupsen/logrus",
 	})
 	routerCode, err := templates.WriteTemplate(routerTemplateStr, template)
 	if err != nil {
@@ -199,11 +193,19 @@ func generateHandlers(packageName, basePath, outputPath string, s *spec.Swagger,
 	outputPath = strings.TrimPrefix(outputPath, ".")
 	moduleName, versionSuffix := utils.ExtractModuleNameAndVersionSuffix(packageName, outputPath)
 	tmpl := handlerFileTemplate{
-		ImportStatements: swagger.ImportStatements([]string{"context", "github.com/gorilla/mux",
-			"github.com/Clever/kayvee-go/v7/logger",
-			"net/http", "strconv", "encoding/json", "strconv", "fmt", moduleName + outputPath + "/models" + versionSuffix,
-			"github.com/go-openapi/strfmt", "github.com/go-openapi/swag", "io/ioutil", "bytes",
-			"github.com/go-errors/errors", "golang.org/x/xerrors",
+		ImportStatements: swagger.ImportStatements([]string{
+			"context",
+			"github.com/gorilla/mux",
+			"net/http",
+			"strconv",
+			"encoding/json",
+			"strconv",
+			moduleName + outputPath + "/models" + versionSuffix,
+			"github.com/go-openapi/strfmt",
+			"github.com/go-openapi/swag",
+			"io/ioutil",
+			"bytes",
+			"github.com/go-errors/errors",
 		}),
 		BaseStringToTypeCode: swagger.BaseStringToTypeCode(),
 	}
@@ -339,7 +341,6 @@ func (h handler) {{.Op}}Handler(ctx context.Context, w http.ResponseWriter, r *h
 {{if .HasParams}}
 	{{.InputVarName}}, err := new{{.Op}}Input(r)
 	if err != nil {
-		logger.FromContext(ctx).AddContext("error", err.Error())
 		http.Error(w, jsonMarshalNoError({{index .StatusCodeToType 400}}{Message: err.Error()}), http.StatusBadRequest)
 		return
 	}
@@ -356,7 +357,6 @@ func (h handler) {{.Op}}Handler(ctx context.Context, w http.ResponseWriter, r *h
 		{{end}}
 	{{end}}
 		if err != nil {
-			logger.FromContext(ctx).AddContext("error", err.Error())
 			http.Error(w, jsonMarshalNoError({{index .StatusCodeToType 400}}{Message: err.Error()}), http.StatusBadRequest)
 			return
 		}
@@ -382,12 +382,6 @@ func (h handler) {{.Op}}Handler(ctx context.Context, w http.ResponseWriter, r *h
 	{{end}}
 {{end}}
 	if err != nil {
-		logger.FromContext(ctx).AddContext("error", err.Error())
-		if btErr, ok := err.(*errors.Error); ok {
-			logger.FromContext(ctx).AddContext("stacktrace", string(btErr.Stack()))
-		} else if xerr, ok := err.(xerrors.Formatter); ok {
-			logger.FromContext(ctx).AddContext("frames", fmt.Sprintf("%%+v", xerr))
-		}
 		statusCode := statusCodeFor{{.Op}}(err)
 		if statusCode == -1 {
 			err = {{index .StatusCodeToType 500}}{Message: err.Error()}
@@ -400,7 +394,6 @@ func (h handler) {{.Op}}Handler(ctx context.Context, w http.ResponseWriter, r *h
 {{if .SuccessReturnType}}
 	respBytes, err := json.Marshal(resp)
 	if err != nil {
-		logger.FromContext(ctx).AddContext("error", err.Error())
 		http.Error(w, jsonMarshalNoError({{index .StatusCodeToType 500}}{Message: err.Error()}), http.StatusInternalServerError)
 		return
 	}
@@ -410,7 +403,6 @@ func (h handler) {{.Op}}Handler(ctx context.Context, w http.ResponseWriter, r *h
 			{{.InputVarName}}.{{.PagingParamField}} = {{if .PagingParamPointer}}&{{end}}nextPageID
 			path, err := {{.InputVarName}}.Path()
 			if err != nil {
-				logger.FromContext(ctx).AddContext("error", err.Error())
 				http.Error(w, jsonMarshalNoError({{index .StatusCodeToType 500}}{Message: err.Error()}), http.StatusInternalServerError)
 				return
 			}

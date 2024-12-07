@@ -4,8 +4,8 @@ import (
 	"fmt"
 	"strconv"
 	"strings"
+	"wag/utils"
 
-	"github.com/Clever/wag/v9/utils"
 	"github.com/go-openapi/spec"
 )
 
