@@ -239,8 +239,10 @@ var validationStr = `
 	{{if eq .Type "body" -}}
 	{{if not .BinaryBody -}}
 	if {{.AccessString}} != nil {
-		if err := {{.AccessString}}.Validate(nil); err != nil {
-			return err
+		if validator, ok := interface{}({{.AccessString}}).(interface{ Validate(interface{}) error }); ok {
+			if err := validator.Validate(nil); err != nil {
+				return err
+			}
 		}
 	}
 	{{- end -}}
